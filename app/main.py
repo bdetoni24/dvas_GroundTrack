@@ -1,19 +1,20 @@
 """
-Ground Track Visualizer - Dinamica del volo aerospaziale
-Applicazione GUI per la visualizzazione di ground track di satelliti.
+Spaceflight Dynamics - Orbital Simulator
+Interactive GUI for orbit analysis and ground-track visualization.
 
-Esegui con:  python main.py
+Authors: De Toni Bernardo, Da Ros Nicola
+Run with:   python main.py
 """
 import sys
 import numpy as np
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QFont, QPalette, QColor, QIcon
+from PyQt5.QtGui import QFont, QFontDatabase
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QPushButton, QComboBox,
-    QDoubleSpinBox, QSpinBox, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QTabWidget, QSplitter, QGroupBox, QCheckBox, QSlider, QFormLayout,
-    QTextEdit, QScrollArea, QFrame, QSizePolicy, QMessageBox,
+    QDoubleSpinBox, QVBoxLayout, QHBoxLayout, QTabWidget, QSplitter,
+    QGroupBox, QCheckBox, QSlider, QFormLayout, QTextEdit, QScrollArea,
+    QFrame, QMessageBox,
 )
 
 import orbital as orb
@@ -24,84 +25,127 @@ from view_orbit_sim import OrbitSimulator2D
 
 
 # ======================================================================
-#  Stile grafico globale
+#   Global dark theme
 # ======================================================================
-DARK_STYLE = """
-QMainWindow, QWidget { background-color: #0f1420; color: #dce6f0; }
+APP_STYLE = """
+* { font-family: 'Inter','Segoe UI Variable','Segoe UI',sans-serif; }
+QMainWindow, QWidget {
+    background-color: #0d1117; color: #e6edf3;
+}
+QScrollArea, QScrollArea > QWidget > QWidget {
+    background-color: #0d1117; border: none;
+}
 QGroupBox {
-    border: 1px solid #2a3a55; border-radius: 6px;
-    margin-top: 12px; padding-top: 6px;
-    color: #7aaaff; font-weight: bold;
+    border: 1px solid #30363d; border-radius: 8px;
+    margin-top: 14px; padding: 10px 8px 6px 8px;
+    background-color: #161b22;
+    color: #58a6ff; font-weight: 600; font-size: 9pt;
 }
 QGroupBox::title {
-    subcontrol-origin: margin; left: 10px; padding: 0 5px;
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 10px; padding: 0 6px;
+    background-color: #0d1117;
 }
-QLabel { color: #dce6f0; }
-QLabel#title { color: #6ab0ff; font-size: 14pt; font-weight: bold; }
-QLabel#subtitle { color: #9ab8d8; font-size: 9pt; }
-QLabel#info { color: #c8d8e8; font-family: 'Consolas', monospace; font-size: 9pt; }
-QLabel#value { color: #ffd866; font-family: 'Consolas', monospace; }
+QLabel { color: #e6edf3; font-size: 9pt; }
+QLabel#title    { color: #58a6ff; font-size: 15pt; font-weight: 700;
+                  letter-spacing: 0.3px; }
+QLabel#subtitle { color: #8b949e; font-size: 9pt; }
+QLabel#credits  { color: #6e7681; font-size: 8pt; font-style: italic; }
+QLabel#info     { color: #c9d1d9; font-family: 'JetBrains Mono','Cascadia Mono',
+                  'Consolas',monospace; font-size: 8pt; }
+QLabel#value    { color: #e3b341; font-family: 'JetBrains Mono','Cascadia Mono',
+                  'Consolas',monospace; font-weight: 600; }
+
 QPushButton {
-    background-color: #1f3050; color: #ffffff;
-    border: 1px solid #3a5580; border-radius: 4px;
-    padding: 6px 14px; font-weight: bold;
+    background-color: #21262d; color: #e6edf3;
+    border: 1px solid #363b42; border-radius: 6px;
+    padding: 6px 14px; font-weight: 600; font-size: 9pt;
 }
-QPushButton:hover   { background-color: #2a4070; border-color: #5a7ab0; }
-QPushButton:pressed { background-color: #3355a0; }
-QPushButton#play    { background-color: #1a6640; border-color: #2a9060; }
-QPushButton#play:hover { background-color: #2a8050; }
-QPushButton#pause   { background-color: #8a4a10; border-color: #b06020; }
-QPushButton#pause:hover { background-color: #a05a18; }
+QPushButton:hover   { background-color: #30363d; border-color: #58a6ff; }
+QPushButton:pressed { background-color: #1f6feb; color: #ffffff; }
+QPushButton#play    { background-color: #238636; border-color: #2ea043; color: #ffffff; }
+QPushButton#play:hover { background-color: #2ea043; }
+QPushButton#pause   { background-color: #9e6a03; border-color: #bb8009; color: #ffffff; }
+QPushButton#pause:hover { background-color: #bb8009; }
+
 QComboBox, QDoubleSpinBox, QSpinBox {
-    background-color: #1a2438; color: #ffffff;
-    border: 1px solid #3a5580; border-radius: 3px; padding: 3px;
+    background-color: #0d1117; color: #e6edf3;
+    border: 1px solid #30363d; border-radius: 5px;
+    padding: 4px 6px; font-size: 9pt;
+    selection-background-color: #1f6feb;
 }
+QComboBox:hover, QDoubleSpinBox:hover { border-color: #58a6ff; }
 QComboBox QAbstractItemView {
-    background-color: #1a2438; color: #ffffff;
-    selection-background-color: #3a5580;
+    background-color: #161b22; color: #e6edf3;
+    selection-background-color: #1f6feb;
+    border: 1px solid #30363d;
 }
+
 QSlider::groove:horizontal {
-    background: #1a2438; height: 4px; border-radius: 2px;
+    background: #21262d; height: 4px; border-radius: 2px;
 }
 QSlider::handle:horizontal {
-    background: #5a7ab0; width: 14px; margin: -6px 0;
+    background: #58a6ff; width: 14px; margin: -6px 0;
     border-radius: 7px;
 }
-QSlider::sub-page:horizontal { background: #3a5580; }
-QTabWidget::pane { border: 1px solid #2a3a55; background: #0a0e18; }
+QSlider::sub-page:horizontal { background: #1f6feb; border-radius: 2px; }
+
+QTabWidget::pane {
+    border: 1px solid #30363d; background: #0d1117;
+    border-top-left-radius: 0; border-top-right-radius: 6px;
+}
 QTabBar::tab {
-    background: #1a2438; color: #aacce8; padding: 7px 18px;
+    background: #0d1117; color: #8b949e;
+    padding: 9px 20px;
+    border: 1px solid transparent; border-bottom: none;
     border-top-left-radius: 6px; border-top-right-radius: 6px;
-    font-weight: bold; min-width: 130px;
+    font-weight: 600; font-size: 9pt; min-width: 140px;
 }
-QTabBar::tab:selected { background: #2a4070; color: #ffffff; }
+QTabBar::tab:hover    { color: #e6edf3; }
+QTabBar::tab:selected {
+    background: #161b22; color: #58a6ff;
+    border: 1px solid #30363d; border-bottom: 1px solid #161b22;
+}
+
 QTextEdit {
-    background-color: #080c14; color: #aaccee;
-    border: 1px solid #2a3a55; font-family: 'Consolas', monospace;
+    background-color: #010409; color: #c9d1d9;
+    border: 1px solid #30363d; border-radius: 6px;
+    font-family: 'JetBrains Mono','Cascadia Mono','Consolas',monospace;
+    font-size: 8pt;
 }
-QCheckBox { spacing: 8px; }
+QCheckBox { spacing: 8px; font-size: 9pt; }
 QCheckBox::indicator {
     width: 16px; height: 16px;
-    border: 1px solid #3a5580; border-radius: 3px; background: #1a2438;
+    border: 1px solid #30363d; border-radius: 4px;
+    background: #0d1117;
 }
-QCheckBox::indicator:checked { background: #4090d0; border: 1px solid #60a0d8; }
+QCheckBox::indicator:hover { border-color: #58a6ff; }
+QCheckBox::indicator:checked {
+    background: #1f6feb; border: 1px solid #58a6ff;
+}
 QScrollBar:vertical {
-    background: #0f1420; width: 10px; border: none;
+    background: #0d1117; width: 10px; border: none;
 }
-QScrollBar::handle:vertical { background: #2a3a55; border-radius: 5px; min-height: 25px; }
-QFrame#separator { background: #2a3a55; max-height: 1px; }
+QScrollBar::handle:vertical {
+    background: #30363d; border-radius: 5px; min-height: 25px;
+}
+QScrollBar::handle:vertical:hover { background: #484f58; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QFrame#separator { background: #30363d; max-height: 1px; }
+QSplitter::handle { background: #30363d; width: 1px; }
 """
 
 
 # ======================================================================
-#  Control Panel: input parametri Kepleriani + preset + animazione
+#   Control panel: Keplerian parameters + preset + animation
 # ======================================================================
 class ControlPanel(QWidget):
     parameters_changed = pyqtSignal()
     play_toggled = pyqtSignal(bool)
     speed_changed = pyqtSignal(float)
     reset_clicked = pyqtSignal()
-    frame_changed = pyqtSignal(str)          # 'ECI' o 'ECEF'
+    frame_changed = pyqtSignal(str)          # 'ECI' or 'ECEF'
     j2_toggled = pyqtSignal(bool)
     duration_changed = pyqtSignal(float)
     ecef_3d_toggled = pyqtSignal(bool)
@@ -113,11 +157,11 @@ class ControlPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(10)
 
-        # Titolo
-        title = QLabel('Ground Track Visualizer')
+        # Title
+        title = QLabel('Spaceflight Dynamics')
         title.setObjectName('title')
         layout.addWidget(title)
-        subtitle = QLabel('Dinamica del volo aerospaziale\nVisualizzazione orbitale interattiva')
+        subtitle = QLabel('Interactive orbital simulator')
         subtitle.setObjectName('subtitle')
         layout.addWidget(subtitle)
 
@@ -126,22 +170,22 @@ class ControlPanel(QWidget):
         sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
-        # Preset satelliti
-        preset_box = QGroupBox('Preset satellite')
+        # Preset satellites
+        preset_box = QGroupBox('Satellite preset')
         pl = QVBoxLayout(preset_box)
         self.preset_combo = QComboBox()
         self.preset_combo.addItem('— custom —')
         for name in list_satellites():
             self.preset_combo.addItem(name)
         pl.addWidget(self.preset_combo)
-        self.preset_desc = QLabel('Scegli un satellite o usa parametri personalizzati.')
+        self.preset_desc = QLabel('Choose a preset or enter custom parameters.')
         self.preset_desc.setWordWrap(True)
-        self.preset_desc.setStyleSheet('color: #88aadd; font-style: italic; font-size: 9pt;')
+        self.preset_desc.setStyleSheet('color:#8b949e; font-style:italic; font-size:8pt;')
         pl.addWidget(self.preset_desc)
         layout.addWidget(preset_box)
 
-        # Parametri Kepleriani
-        kep_box = QGroupBox('6 Parametri Kepleriani')
+        # Keplerian parameters
+        kep_box = QGroupBox('Keplerian elements')
         form = QFormLayout(kep_box)
         form.setLabelAlignment(Qt.AlignRight)
 
@@ -152,20 +196,20 @@ class ControlPanel(QWidget):
         self.spin_argp = self._mkspin(0.0, 360.0, 0.0, 2, ' °')
         self.spin_theta = self._mkspin(0.0, 360.0, 0.0, 2, ' °')
 
-        form.addRow('a  (semiasse maggiore):', self.spin_a)
-        form.addRow('e  (eccentricità):', self.spin_e)
-        form.addRow('i  (inclinazione):', self.spin_i)
+        form.addRow('a  (semi-major axis):', self.spin_a)
+        form.addRow('e  (eccentricity):', self.spin_e)
+        form.addRow('i  (inclination):', self.spin_i)
         form.addRow('Ω  (RAAN):', self.spin_raan)
-        form.addRow('ω  (arg. pericentro):', self.spin_argp)
-        form.addRow('θ₀ (anomalia vera iniz.):', self.spin_theta)
+        form.addRow('ω  (arg. of perigee):', self.spin_argp)
+        form.addRow('θ₀ (initial true anom.):', self.spin_theta)
 
-        self.chk_j2 = QCheckBox('Applica perturbazione J2 (SSO, Molniya)')
+        self.chk_j2 = QCheckBox('Apply J2 perturbation (SSO, Molniya)')
         form.addRow(self.chk_j2)
 
         layout.addWidget(kep_box)
 
-        # Animazione
-        anim_box = QGroupBox('Animazione')
+        # Animation
+        anim_box = QGroupBox('Animation')
         al = QVBoxLayout(anim_box)
 
         btn_row = QHBoxLayout()
@@ -178,19 +222,19 @@ class ControlPanel(QWidget):
         al.addLayout(btn_row)
 
         speed_row = QHBoxLayout()
-        speed_row.addWidget(QLabel('Velocità:'))
+        speed_row.addWidget(QLabel('Speed:'))
         self.slider_speed = QSlider(Qt.Horizontal)
-        self.slider_speed.setRange(1, 5000)     # *1x ... *5000x simulato
+        self.slider_speed.setRange(1, 5000)
         self.slider_speed.setValue(500)
         speed_row.addWidget(self.slider_speed)
-        self.lbl_speed = QLabel('500 x')
+        self.lbl_speed = QLabel('500 ×')
         self.lbl_speed.setMinimumWidth(60)
         self.lbl_speed.setObjectName('value')
         speed_row.addWidget(self.lbl_speed)
         al.addLayout(speed_row)
 
         dur_row = QHBoxLayout()
-        dur_row.addWidget(QLabel('Durata (periodi):'))
+        dur_row.addWidget(QLabel('Duration (periods):'))
         self.spin_duration = QDoubleSpinBox()
         self.spin_duration.setRange(0.1, 50.0)
         self.spin_duration.setValue(3.0)
@@ -201,25 +245,45 @@ class ControlPanel(QWidget):
 
         layout.addWidget(anim_box)
 
-        # Visualizzazione
-        vis_box = QGroupBox('Visualizzazione')
-        vl = QVBoxLayout(vis_box)
+        # Visualization (context-aware)
+        self.vis_box = QGroupBox('Visualization')
+        vl = QVBoxLayout(self.vis_box)
 
-        frame_row = QHBoxLayout()
-        frame_row.addWidget(QLabel('Ground Track 2D:'))
+        # Frame selector (only for Ground Track tab)
+        self.frame_widget = QWidget()
+        fr_row = QHBoxLayout(self.frame_widget)
+        fr_row.setContentsMargins(0, 0, 0, 0)
+        fr_row.addWidget(QLabel('Frame:'))
         self.frame_combo = QComboBox()
-        self.frame_combo.addItems(['ECEF (terrestre)', 'ECI (inerziale)'])
-        frame_row.addWidget(self.frame_combo)
-        vl.addLayout(frame_row)
+        self.frame_combo.addItems(['ECEF (Earth-fixed)', 'ECI (inertial)'])
+        fr_row.addWidget(self.frame_combo)
+        vl.addWidget(self.frame_widget)
 
-        self.chk_ecef_3d = QCheckBox('Rotazione Terra nel 3D (ECEF)')
+        # 3D ECEF rotation (only for 3D tab)
+        self.chk_ecef_3d = QCheckBox('Lock orbit to Earth (ECEF)')
         vl.addWidget(self.chk_ecef_3d)
 
-        layout.addWidget(vis_box)
+        layout.addWidget(self.vis_box)
+
+        # Compact info panel
+        self.info_box = QGroupBox('Orbit info')
+        il = QVBoxLayout(self.info_box)
+        il.setContentsMargins(4, 4, 4, 4)
+        self.info_text = QTextEdit()
+        self.info_text.setReadOnly(True)
+        self.info_text.setMinimumHeight(180)
+        il.addWidget(self.info_text)
+        layout.addWidget(self.info_box)
 
         layout.addStretch(1)
 
-        # Collegamenti
+        # Credits
+        credits = QLabel('Made by De Toni Bernardo & Da Ros Nicola')
+        credits.setObjectName('credits')
+        credits.setAlignment(Qt.AlignCenter)
+        layout.addWidget(credits)
+
+        # Connections
         self.preset_combo.currentIndexChanged.connect(self._on_preset_changed)
         for sp in (self.spin_a, self.spin_e, self.spin_i,
                    self.spin_raan, self.spin_argp, self.spin_theta):
@@ -256,7 +320,7 @@ class ControlPanel(QWidget):
         if self._building:
             return
         if idx <= 0:
-            self.preset_desc.setText('Parametri personalizzati.')
+            self.preset_desc.setText('Custom parameters.')
             return
         name = self.preset_combo.itemText(idx)
         params = get_satellite_params(name)
@@ -276,11 +340,10 @@ class ControlPanel(QWidget):
     def _on_param_changed(self):
         if self._building:
             return
-        # se l'utente modifica manualmente, torna a "custom"
         if self.preset_combo.currentIndex() != 0:
             self._building = True
             self.preset_combo.setCurrentIndex(0)
-            self.preset_desc.setText('Parametri personalizzati.')
+            self.preset_desc.setText('Custom parameters.')
             self._building = False
         self.parameters_changed.emit()
 
@@ -295,7 +358,7 @@ class ControlPanel(QWidget):
         self.play_toggled.emit(checked)
 
     def _on_speed_changed(self, value):
-        self.lbl_speed.setText(f'{value} x')
+        self.lbl_speed.setText(f'{value} ×')
         self.speed_changed.emit(float(value))
 
     def _on_frame_changed(self, idx):
@@ -318,10 +381,10 @@ class ControlPanel(QWidget):
     def get_color(self):
         idx = self.preset_combo.currentIndex()
         if idx <= 0:
-            return '#FF4444'
+            return '#f85149'
         name = self.preset_combo.itemText(idx)
         params = SATELLITES.get(name, {})
-        return params.get('colore', '#FF4444')
+        return params.get('colore', '#f85149')
 
     def get_name(self):
         idx = self.preset_combo.currentIndex()
@@ -329,139 +392,110 @@ class ControlPanel(QWidget):
             return 'Custom'
         return self.preset_combo.itemText(idx)
 
-
-# ======================================================================
-#  Info Panel: grandezze derivate
-# ======================================================================
-class InfoPanel(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        self.text = QTextEdit()
-        self.text.setReadOnly(True)
-        self.text.setMinimumHeight(210)
-        layout.addWidget(self.text)
-
-    def update_info(self, params, info_dict, sim_time):
-        a = params['a']; e = params['e']
-        i = np.degrees(params['i']); raan = np.degrees(params['raan'])
-        argp = np.degrees(params['argp']); theta = np.degrees(params['theta'])
-        lines = []
-        lines.append(f"<b style='color:#6ab0ff'>Grandezze derivate</b><br>")
-        lines.append(f"<span style='color:#88aadd'>Tipo orbita:</span> "
-                     f"<b style='color:#ffd866'>{info_dict['tipo_orbita']}</b><br>")
-        lines.append(f"<span style='color:#88aadd'>Periodo T:</span> "
-                     f"<b style='color:#ffd866'>{info_dict['periodo']:.1f} s "
-                     f"= {info_dict['periodo']/60:.2f} min "
-                     f"= {info_dict['periodo']/3600:.3f} h</b><br>")
-        lines.append(f"<span style='color:#88aadd'>Pericentro r<sub>p</sub>:</span> "
-                     f"<b style='color:#ffd866'>{info_dict['pericentro']:.1f} km</b> "
-                     f"(altitudine: {info_dict['pericentro']-orb.R_EARTH:.1f} km)<br>")
-        lines.append(f"<span style='color:#88aadd'>Apocentro r<sub>a</sub>:</span> "
-                     f"<b style='color:#ffd866'>{info_dict['apocentro']:.1f} km</b> "
-                     f"(altitudine: {info_dict['apocentro']-orb.R_EARTH:.1f} km)<br>")
-        lines.append(f"<span style='color:#88aadd'>Semilato retto p:</span> "
-                     f"{info_dict['semilato_retto']:.1f} km<br>")
-        lines.append(f"<span style='color:#88aadd'>Momento ang. h:</span> "
-                     f"{info_dict['momento_angolare']:.1f} km²/s<br>")
-        lines.append(f"<span style='color:#88aadd'>Energia ξ:</span> "
-                     f"{info_dict['energia_specifica']:.3f} km²/s²<br>")
-        lines.append(f"<br><b style='color:#6ab0ff'>Stato corrente</b><br>")
-        lines.append(f"<span style='color:#88aadd'>Tempo simulato:</span> "
-                     f"<b style='color:#ffd866'>{sim_time:.1f} s "
-                     f"= {sim_time/60:.2f} min</b><br>")
-        lines.append(f"<span style='color:#88aadd'>Altitudine:</span> "
-                     f"<b style='color:#ffd866'>{info_dict['altitudine']:.1f} km</b><br>")
-        lines.append(f"<span style='color:#88aadd'>|r|:</span> "
-                     f"{info_dict['raggio_corrente']:.1f} km<br>")
-        lines.append(f"<span style='color:#88aadd'>|v|:</span> "
-                     f"<b style='color:#ffd866'>{info_dict['velocita_corrente']:.3f} km/s</b> "
-                     f"(v_esc: {info_dict['vel_fuga']:.3f} km/s)<br>")
-        lines.append(f"<span style='color:#88aadd'>v<sub>⊥</sub>:</span> "
-                     f"{info_dict['vel_ortogonale']:.3f} km/s &nbsp; "
-                     f"<span style='color:#88aadd'>v<sub>r</sub>:</span> "
-                     f"{info_dict['vel_radiale']:.3f} km/s<br>")
-        lines.append(f"<span style='color:#88aadd'>Flight Path Angle γ:</span> "
-                     f"<b style='color:#ffd866'>{info_dict['flight_path_angle']:+.3f}°</b><br>")
-        self.text.setHtml(''.join(lines))
+    def set_view_mode(self, mode):
+        """Show/hide context-dependent controls. mode ∈ {'3d','ground_track'}."""
+        if mode == '3d':
+            self.frame_widget.setVisible(False)
+            self.chk_ecef_3d.setVisible(True)
+            self.vis_box.setTitle('Visualization — 3D view')
+        elif mode == 'ground_track':
+            self.frame_widget.setVisible(True)
+            self.chk_ecef_3d.setVisible(False)
+            self.vis_box.setTitle('Visualization — Ground Track')
 
 
 # ======================================================================
-#  MainWindow
+#   Info text helper
+# ======================================================================
+def update_info_text(text_widget, info_dict, sim_time):
+    L = []
+    L.append(f"<b style='color:#58a6ff'>Derived quantities</b><br>")
+    L.append(f"<span style='color:#8b949e'>Type:</span> "
+             f"<b style='color:#e3b341'>{info_dict['tipo_orbita']}</b><br>")
+    L.append(f"<span style='color:#8b949e'>T:</span> "
+             f"<b style='color:#e3b341'>{info_dict['periodo']/60:.2f} min "
+             f"= {info_dict['periodo']/3600:.3f} h</b><br>")
+    L.append(f"<span style='color:#8b949e'>r<sub>p</sub>:</span> "
+             f"<b style='color:#e3b341'>{info_dict['pericentro']:.1f} km</b> "
+             f"(h {info_dict['pericentro']-orb.R_EARTH:.0f} km)<br>")
+    L.append(f"<span style='color:#8b949e'>r<sub>a</sub>:</span> "
+             f"<b style='color:#e3b341'>{info_dict['apocentro']:.1f} km</b> "
+             f"(h {info_dict['apocentro']-orb.R_EARTH:.0f} km)<br>")
+    L.append(f"<span style='color:#8b949e'>p:</span> {info_dict['semilato_retto']:.1f} km &nbsp;"
+             f"<span style='color:#8b949e'>h:</span> {info_dict['momento_angolare']:.0f} km²/s<br>")
+    L.append(f"<span style='color:#8b949e'>ξ:</span> "
+             f"{info_dict['energia_specifica']:.3f} km²/s²<br>")
+    L.append(f"<br><b style='color:#58a6ff'>Current state</b><br>")
+    L.append(f"<span style='color:#8b949e'>t<sub>sim</sub>:</span> "
+             f"<b style='color:#e3b341'>{sim_time/60:.2f} min</b><br>")
+    L.append(f"<span style='color:#8b949e'>Alt:</span> "
+             f"<b style='color:#e3b341'>{info_dict['altitudine']:.1f} km</b> "
+             f"&nbsp;|r|: {info_dict['raggio_corrente']:.1f}<br>")
+    L.append(f"<span style='color:#8b949e'>|v|:</span> "
+             f"<b style='color:#e3b341'>{info_dict['velocita_corrente']:.3f} km/s</b><br>")
+    L.append(f"<span style='color:#8b949e'>v<sub>⊥</sub>:</span> "
+             f"{info_dict['vel_ortogonale']:.3f}  "
+             f"<span style='color:#8b949e'>v<sub>r</sub>:</span> "
+             f"{info_dict['vel_radiale']:.3f} km/s<br>")
+    L.append(f"<span style='color:#8b949e'>γ (FPA):</span> "
+             f"<b style='color:#e3b341'>{info_dict['flight_path_angle']:+.3f}°</b><br>")
+    text_widget.setHtml(''.join(L))
+
+
+# ======================================================================
+#   MainWindow
 # ======================================================================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Ground Track Visualizer - Dinamica del volo aerospaziale')
+        self.setWindowTitle('Spaceflight Dynamics — Orbital Simulator')
         self.resize(1500, 900)
 
-        # Stato simulazione
-        self.sim_time = 0.0            # tempo simulato in secondi
-        self.speed = 500.0             # moltiplicatore tempo (1x = realtime)
+        # Simulation state (shared by 3D view and Ground Track)
+        self.sim_time = 0.0
+        self.speed = 500.0
         self.playing = False
         self._precomputed_track = None
-        self._track_time_array = None
 
-        # Widgets
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        splitter = QSplitter(Qt.Horizontal)
-        root.addWidget(splitter)
+        self.splitter = QSplitter(Qt.Horizontal)
+        root.addWidget(self.splitter)
 
-        # Pannello controlli (sinistra) dentro scroll area
+        # Left sidebar (Keplerian params + info) — shown for 3D & Ground Track
         self.control = ControlPanel()
-        ctrl_scroll = QScrollArea()
-        ctrl_scroll.setWidget(self.control)
-        ctrl_scroll.setWidgetResizable(True)
-        ctrl_scroll.setMinimumWidth(320)
-        ctrl_scroll.setMaximumWidth(420)
-        splitter.addWidget(ctrl_scroll)
+        self.ctrl_scroll = QScrollArea()
+        self.ctrl_scroll.setWidget(self.control)
+        self.ctrl_scroll.setWidgetResizable(True)
+        self.ctrl_scroll.setMinimumWidth(320)
+        self.ctrl_scroll.setMaximumWidth(400)
+        self.splitter.addWidget(self.ctrl_scroll)
 
-        # Area centrale: Tab widget
+        # Tabs: Orbit Simulator 2D → 3D View → Ground Track
         self.tabs = QTabWidget()
-        splitter.addWidget(self.tabs)
+        self.splitter.addWidget(self.tabs)
 
-        # Ground Track 2D
-        self.view_2d = GroundTrackView()
-        tab_2d = QWidget()
-        l2 = QVBoxLayout(tab_2d)
-        l2.setContentsMargins(2, 2, 2, 2)
-        l2.addWidget(self.view_2d)
-        self.tabs.addTab(tab_2d, 'Ground Track 2D')
-
-        # 3D view
-        self.view_3d = View3D()
-        tab_3d = QWidget()
-        l3 = QVBoxLayout(tab_3d)
-        l3.setContentsMargins(2, 2, 2, 2)
-        l3.addWidget(self.view_3d)
-        self.tabs.addTab(tab_3d, 'Vista 3D Orbitale')
-
-        # Simulatore orbita 2D (corpo generico)
         self.view_sim = OrbitSimulator2D()
-        self.tabs.addTab(self.view_sim, 'Simulatore Orbita 2D')
+        self.tabs.addTab(self.view_sim, '2D Orbit Simulator')
 
-        # Pannello info
-        self.info_panel = InfoPanel()
-        tab_info = QWidget()
-        li = QVBoxLayout(tab_info)
-        li.setContentsMargins(6, 6, 6, 6)
-        li.addWidget(self.info_panel)
-        self.tabs.addTab(tab_info, 'Info Orbita')
+        self.view_3d = View3D()
+        self.tabs.addTab(self.view_3d, '3D Orbit View')
 
-        splitter.setSizes([350, 1150])
+        self.view_2d = GroundTrackView()
+        self.tabs.addTab(self.view_2d, 'Ground Track')
 
-        # Timer di animazione
+        self.splitter.setSizes([340, 1160])
+
+        # Main animation timer (3D + Ground Track)
         self.timer = QTimer()
-        self.timer.setInterval(60)          # ~16-17 fps
+        self.timer.setInterval(60)
         self.timer.timeout.connect(self._on_tick)
 
-        # Segnali
+        # Signals
         self.control.parameters_changed.connect(self._recompute_orbit)
         self.control.play_toggled.connect(self._toggle_play)
         self.control.reset_clicked.connect(self._reset_simulation)
@@ -469,9 +503,30 @@ class MainWindow(QMainWindow):
         self.control.frame_changed.connect(self.view_2d.set_frame)
         self.control.duration_changed.connect(lambda _: self._recompute_orbit())
         self.control.ecef_3d_toggled.connect(self.view_3d.set_show_ecef)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
 
-        # Preset iniziale: ISS
-        self.control.preset_combo.setCurrentIndex(1)
+        # Initial preset + tab
+        self.control.preset_combo.setCurrentIndex(1)  # ISS
+        self.tabs.setCurrentIndex(0)
+        self._on_tab_changed(0)
+
+    # ------------------------------------------------------------------
+    def _on_tab_changed(self, idx):
+        if idx == 0:
+            # Orbit simulator 2D — hide sidebar, pause main timer
+            self.ctrl_scroll.setVisible(False)
+            if self.control.btn_play.isChecked():
+                self.control.btn_play.setChecked(False)
+        else:
+            # Pause simulator if running, show sidebar
+            if self.view_sim.btn_play.isChecked():
+                self.view_sim.btn_play.setChecked(False)
+            self.ctrl_scroll.setVisible(True)
+            if idx == 1:
+                self.control.set_view_mode('3d')
+            else:
+                self.control.set_view_mode('ground_track')
+            self._apply_current_time()
 
     # ------------------------------------------------------------------
     def _recompute_orbit(self):
@@ -483,25 +538,20 @@ class MainWindow(QMainWindow):
             params['raan'], params['argp'], params['theta'],
         )
         if e >= 1.0:
-            QMessageBox.warning(self, 'Orbita aperta',
-                                'Il ground track ha senso solo per orbite chiuse (e<1).')
-        if e < 1.0:
-            T = orb.orbital_period(a)
-        else:
-            T = 3600.0
+            QMessageBox.warning(self, 'Open orbit',
+                                'Ground track only applies to closed orbits (e<1).')
+        T = orb.orbital_period(a) if e < 1.0 else 3600.0
         duration = params['duration_periods'] * T
-        N = 900
+        N = 720
         t_arr = np.linspace(0, duration, N)
         r_eci, v_eci, theta_arr, raan_arr, argp_arr = orb.propagate_keplerian(
-            a, e, i, raan, argp, theta0, t_arr,
-            j2=params['j2'],
+            a, e, i, raan, argp, theta0, t_arr, j2=params['j2'],
         )
         r_ecef = orb.eci_array_to_ecef(r_eci, t_arr, theta_g0=0.0)
 
         lats_ecef, lons_ecef = orb.compute_groundtrack(r_ecef)
         lats_eci, lons_eci = orb.compute_groundtrack(r_eci)
 
-        # Memorizza per animazione
         self._precomputed_track = {
             'r_eci': r_eci, 'r_ecef': r_ecef,
             'theta_arr': theta_arr,
@@ -512,42 +562,33 @@ class MainWindow(QMainWindow):
             'duration': duration, 'j2': params['j2'],
         }
 
-        # Ritardo di orbita ECEF: Δλ = -ω_E · T  (longitudine spostata per passaggio)
+        # ECEF longitude drift per orbit: Δλ = -ω_E · T
         if e < 1.0:
             delta_lambda_deg = -np.degrees(orb.OMEGA_EARTH * T)
-            # porta in [-180, 180]
             delta_lambda_deg = ((delta_lambda_deg + 180) % 360) - 180
         else:
             delta_lambda_deg = None
 
-        # Aggiorna view 2D
         self.view_2d.set_orbit_data(lats_ecef, lons_ecef, lats_eci, lons_eci,
                                     color=color, name=name,
                                     delta_lambda_deg=delta_lambda_deg)
 
-        # Aggiorna view 3D
         self.view_3d.set_orbit(a, e, i, raan, argp, theta0,
-                                color=color, name=name)
+                               color=color, name=name)
 
-        # Info corrente
         self._update_info_panel()
 
     def _update_info_panel(self):
-        params = self.control.get_parameters()
         track = self._precomputed_track
         if track is None:
             return
-        # Find sim time -> idx
         idx = self._current_index()
         a, e, i = track['a'], track['e'], track['i']
         raan_now = track['raan_arr'][idx]
         argp_now = track['argp_arr'][idx]
         theta_now = track['theta_arr'][idx]
         info = orb.orbital_info(a, e, i, raan_now, argp_now, theta_now)
-        self.info_panel.update_info(
-            {'a': a, 'e': e, 'i': i, 'raan': raan_now,
-             'argp': argp_now, 'theta': theta_now},
-            info, self.sim_time)
+        update_info_text(self.control.info_text, info, self.sim_time)
 
     def _current_index(self):
         track = self._precomputed_track
@@ -569,10 +610,12 @@ class MainWindow(QMainWindow):
         if track is None:
             return
         idx = self._current_index()
-        self.view_2d.set_current_index(idx)
-        self.view_3d.set_time(self.sim_time)
-        self.view_3d.set_current_anomaly(track['theta_arr'][idx])
-        # Aggiorna pannello info a tasso ridotto (5 fps) per non saturare
+        cur_tab = self.tabs.currentIndex()
+        if cur_tab == 2:
+            self.view_2d.set_current_index(idx)
+        elif cur_tab == 1:
+            self.view_3d.set_time(self.sim_time)
+            self.view_3d.set_current_anomaly(track['theta_arr'][idx])
         if not hasattr(self, '_info_throttle'):
             self._info_throttle = 0
         self._info_throttle += 1
@@ -597,8 +640,16 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    app.setStyleSheet(DARK_STYLE)
-    app.setFont(QFont('Segoe UI', 9))
+    app.setStyleSheet(APP_STYLE)
+    # Pick a reasonable default font if available
+    families = set(QFontDatabase().families())
+    for fam in ('Inter', 'Segoe UI Variable', 'Segoe UI',
+                'SF Pro Text', 'Helvetica Neue'):
+        if fam in families:
+            app.setFont(QFont(fam, 9))
+            break
+    else:
+        app.setFont(QFont('Sans Serif', 9))
 
     win = MainWindow()
     win.show()
