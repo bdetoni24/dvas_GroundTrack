@@ -1,6 +1,6 @@
 # Ground Track Visualizer
 
-Applicazione interattiva in Python/PyQt5 per la visualizzazione del *ground track* di satelliti e della loro orbita 3D attorno alla Terra. Sviluppata come progetto didattico per il corso di **Dinamica del volo aerospaziale** (A.A. 2025/26, prof. Carlo Bettanini Fecia Di Cossato).
+Applicazione interattiva in Python/PyQt5 per la visualizzazione del *ground track* di satelliti e della loro orbita 3D attorno alla Terra. Sviluppata come progetto didattico per il corso di **Dinamica del volo aerospaziale**
 
 ## Funzionalità
 
