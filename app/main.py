@@ -20,6 +20,7 @@ import orbital as orb
 from satellites import SATELLITES, list_satellites, get_satellite_params
 from view_2d import GroundTrackView
 from view_3d import View3D
+from view_orbit_sim import OrbitSimulator2D
 
 
 # ======================================================================
@@ -441,6 +442,10 @@ class MainWindow(QMainWindow):
         l3.addWidget(self.view_3d)
         self.tabs.addTab(tab_3d, 'Vista 3D Orbitale')
 
+        # Simulatore orbita 2D (corpo generico)
+        self.view_sim = OrbitSimulator2D()
+        self.tabs.addTab(self.view_sim, 'Simulatore Orbita 2D')
+
         # Pannello info
         self.info_panel = InfoPanel()
         tab_info = QWidget()
@@ -507,9 +512,18 @@ class MainWindow(QMainWindow):
             'duration': duration, 'j2': params['j2'],
         }
 
+        # Ritardo di orbita ECEF: Δλ = -ω_E · T  (longitudine spostata per passaggio)
+        if e < 1.0:
+            delta_lambda_deg = -np.degrees(orb.OMEGA_EARTH * T)
+            # porta in [-180, 180]
+            delta_lambda_deg = ((delta_lambda_deg + 180) % 360) - 180
+        else:
+            delta_lambda_deg = None
+
         # Aggiorna view 2D
         self.view_2d.set_orbit_data(lats_ecef, lons_ecef, lats_eci, lons_eci,
-                                    color=color, name=name)
+                                    color=color, name=name,
+                                    delta_lambda_deg=delta_lambda_deg)
 
         # Aggiorna view 3D
         self.view_3d.set_orbit(a, e, i, raan, argp, theta0,

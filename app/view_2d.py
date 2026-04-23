@@ -51,6 +51,8 @@ class GroundTrackView(QWidget):
         self.track_color = '#FF4444'
         self.sat_name = ''
         self.current_idx = 0
+        self.delta_lambda_deg = None       # ritardo orbita ECEF (°)
+        self._info_text = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -127,7 +129,8 @@ class GroundTrackView(QWidget):
 
     # ------------------------------------------------------------------
     def set_orbit_data(self, lats_ecef, lons_ecef, lats_eci, lons_eci,
-                       color='#FF4444', name='Satellite'):
+                       color='#FF4444', name='Satellite',
+                       delta_lambda_deg=None):
         """Imposta i dati dell'orbita da visualizzare."""
         self.lats = np.asarray(lats_ecef)
         self.lons = np.asarray(lons_ecef)
@@ -135,6 +138,7 @@ class GroundTrackView(QWidget):
         self.lons_eci = np.asarray(lons_eci)
         self.track_color = color
         self.sat_name = name
+        self.delta_lambda_deg = delta_lambda_deg
         self.current_idx = 0
         self._redraw()
 
@@ -203,7 +207,31 @@ class GroundTrackView(QWidget):
         )
 
         self._apply_frame_labels()
+        self._update_delta_lambda_text()
         self.canvas.draw_idle()
+
+    def _update_delta_lambda_text(self):
+        """Mostra il ritardo di orbita in ECEF Δλ = -ω_E · T."""
+        if self._info_text is not None:
+            try:
+                self._info_text.remove()
+            except Exception:
+                pass
+            self._info_text = None
+        if self.frame != 'ECEF' or self.delta_lambda_deg is None:
+            return
+        dlam = self.delta_lambda_deg
+        # 1° lat ≈ 111.32 km all'equatore
+        km_eq = abs(dlam) * 111.32
+        txt = f'Δλ = {dlam:+.2f}° / orbita  (≈ {km_eq:.0f} km all\'equatore)'
+        self._info_text = self.ax.text(
+            -178, 84, txt,
+            color='#ffd866', fontsize=9,
+            fontweight='bold',
+            bbox=dict(facecolor='#0a1428', edgecolor='#335577',
+                      alpha=0.85, boxstyle='round,pad=0.3'),
+            zorder=7,
+        )
 
     def _update_marker(self):
         lats = self.lats_eci if self.frame == 'ECI' else self.lats
