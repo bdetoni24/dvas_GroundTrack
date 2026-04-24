@@ -1,14 +1,15 @@
 """
-Simulatore di orbita 2D attorno a un corpo centrale generico.
+2D orbit simulator around a user-selected central body.
 
-L'orbita varia in funzione di e, r_p, ω, θ₀:
-  e = 0           -> circolare
-  0 < e < 1       -> ellittica
-  e = 1           -> parabolica
-  e > 1           -> iperbolica (vengono mostrati v∞ e θ∞)
+The orbit shape depends on (r_p, a, e, ω, θ₀):
+    e = 0      -> circular
+    0 < e < 1  -> elliptic
+    e = 1      -> parabolic
+    e > 1      -> hyperbolic (shows v∞ and θ∞)
 
-Il satellite è animato seguendo la legge di Keplero (M = M0 + n t).
-Passando il mouse sopra l'orbita compaiono i dati locali (TA, r, v, fpa).
+The satellite is animated using Kepler's equation (M = M0 + n·t).
+Hovering over the orbit reveals local state (TA, r, v, fpa).
+Zoom slider keeps the central body centred.
 """
 import numpy as np
 import matplotlib
@@ -20,38 +21,42 @@ from matplotlib.patches import Circle
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QDoubleSpinBox,
-    QPushButton, QSlider, QGroupBox, QFormLayout, QTextEdit, QSizePolicy,
+    QPushButton, QSlider, QGroupBox, QFormLayout, QTextEdit, QScrollArea,
+    QFrame,
 )
 
 from orbital import mean_to_true_anomaly
 
 
-# Costanti corpi celesti (μ in km³/s², R in km)
+# Celestial bodies (μ in km³/s², R in km)
 PLANETS = {
-    'Terra':    {'mu': 398600.4418,      'R': 6378.137, 'color': '#4488ff'},
-    'Luna':     {'mu': 4902.8000,        'R': 1737.4,   'color': '#cccccc'},
-    'Marte':    {'mu': 42828.314,        'R': 3389.5,   'color': '#cc5533'},
-    'Venere':   {'mu': 324858.59,        'R': 6051.8,   'color': '#ddaa66'},
-    'Mercurio': {'mu': 22031.78,         'R': 2439.7,   'color': '#999999'},
-    'Giove':    {'mu': 126686534.0,      'R': 69911.0,  'color': '#ddaa77'},
-    'Saturno':  {'mu': 37931187.0,       'R': 58232.0,  'color': '#ccbb88'},
-    'Sole':     {'mu': 1.32712440018e11, 'R': 695700.0, 'color': '#ffaa33'},
+    'Earth':   {'mu': 398600.4418,      'R': 6378.137, 'color': '#58a6ff'},
+    'Moon':    {'mu': 4902.8000,        'R': 1737.4,   'color': '#bbbbbb'},
+    'Mars':    {'mu': 42828.314,        'R': 3389.5,   'color': '#cc5533'},
+    'Venus':   {'mu': 324858.59,        'R': 6051.8,   'color': '#d9a066'},
+    'Mercury': {'mu': 22031.78,         'R': 2439.7,   'color': '#888888'},
+    'Jupiter': {'mu': 126686534.0,      'R': 69911.0,  'color': '#d7a875'},
+    'Saturn':  {'mu': 37931187.0,       'R': 58232.0,  'color': '#c9b580'},
+    'Sun':     {'mu': 1.32712440018e11, 'R': 695700.0, 'color': '#e3b341'},
 }
 
 
 class OrbitSimulator2D(QWidget):
-    """Simulatore di orbita 2D attorno a un pianeta selezionabile."""
+    """2D orbit simulator around a user-selectable planet."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.planet = 'Terra'
+        self.planet = 'Earth'
         self.mu = PLANETS[self.planet]['mu']
         self.R_p = PLANETS[self.planet]['R']
 
         self.e = 0.5
         self.rp = 8000.0
+        self.a = self.rp / (1 - self.e)
         self.argp = 0.0
         self.theta0 = 0.0
+        self.zoom = 1.0
+        self._updating = False
 
         self.playing = False
         self.sim_time = 0.0
@@ -64,30 +69,43 @@ class OrbitSimulator2D(QWidget):
         self.tooltip = None
 
         root = QHBoxLayout(self)
-        root.setContentsMargins(6, 6, 6, 6)
-        root.setSpacing(8)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # ----------------- Pannello sinistro -----------------
-        side = QWidget()
-        side.setFixedWidth(300)
-        sl = QVBoxLayout(side)
-        sl.setContentsMargins(0, 0, 0, 0)
+        # ----------------- Left sidebar (matches main style) -----------
+        side_container = QWidget()
+        side_container.setObjectName('sim_sidebar')
+        side = QVBoxLayout(side_container)
+        side.setContentsMargins(10, 10, 10, 10)
+        side.setSpacing(10)
 
-        # Pianeta
-        pg = QGroupBox('Corpo centrale')
+        title = QLabel('2D Orbit Simulator')
+        title.setObjectName('title')
+        side.addWidget(title)
+        subtitle = QLabel('Interactive conic-section analyzer')
+        subtitle.setObjectName('subtitle')
+        side.addWidget(subtitle)
+
+        sep = QFrame()
+        sep.setObjectName('separator')
+        sep.setFrameShape(QFrame.HLine)
+        side.addWidget(sep)
+
+        # Planet
+        pg = QGroupBox('Central body')
         pfl = QVBoxLayout(pg)
         self.planet_combo = QComboBox()
         for name in PLANETS:
             self.planet_combo.addItem(name)
         pfl.addWidget(self.planet_combo)
         self.planet_info = QLabel('')
+        self.planet_info.setObjectName('info')
         self.planet_info.setWordWrap(True)
-        self.planet_info.setStyleSheet('color:#88aadd; font-size:9pt;')
         pfl.addWidget(self.planet_info)
-        sl.addWidget(pg)
+        side.addWidget(pg)
 
-        # Parametri orbita
-        og = QGroupBox('Parametri orbita')
+        # Orbital parameters
+        og = QGroupBox('Orbital parameters')
         form = QFormLayout(og)
         form.setLabelAlignment(Qt.AlignRight)
 
@@ -96,33 +114,62 @@ class OrbitSimulator2D(QWidget):
         self.spin_rp.setRange(100.0, 1e9)
         self.spin_rp.setValue(8000.0)
         self.spin_rp.setSuffix(' km')
-        form.addRow('r_p (pericentro):', self.spin_rp)
+        self.spin_rp.setMinimumWidth(110)
+        form.addRow('r_p  (pericenter):', self.spin_rp)
+
+        self.spin_a = QDoubleSpinBox()
+        self.spin_a.setDecimals(1)
+        self.spin_a.setRange(-1e9, 1e9)
+        self.spin_a.setValue(self.a)
+        self.spin_a.setSuffix(' km')
+        self.spin_a.setMinimumWidth(110)
+        form.addRow('a   (semi-major axis):', self.spin_a)
 
         self.spin_e = QDoubleSpinBox()
         self.spin_e.setDecimals(3)
         self.spin_e.setRange(0.0, 3.0)
         self.spin_e.setSingleStep(0.05)
         self.spin_e.setValue(0.5)
-        form.addRow('e (eccentricità):', self.spin_e)
+        form.addRow('e   (eccentricity):', self.spin_e)
 
         self.spin_argp = QDoubleSpinBox()
         self.spin_argp.setDecimals(1)
         self.spin_argp.setRange(0.0, 360.0)
         self.spin_argp.setSingleStep(5.0)
         self.spin_argp.setSuffix(' °')
-        form.addRow('ω (arg. peric.):', self.spin_argp)
+        form.addRow('ω   (arg. of pericenter):', self.spin_argp)
 
         self.spin_theta = QDoubleSpinBox()
         self.spin_theta.setDecimals(1)
         self.spin_theta.setRange(-180.0, 180.0)
         self.spin_theta.setSingleStep(5.0)
         self.spin_theta.setSuffix(' °')
-        form.addRow('θ₀ (anom. iniz.):', self.spin_theta)
+        form.addRow('θ₀  (initial true anom.):', self.spin_theta)
 
-        sl.addWidget(og)
+        side.addWidget(og)
 
-        # Animazione
-        ag = QGroupBox('Animazione')
+        # View (zoom)
+        vg = QGroupBox('View')
+        vv = QVBoxLayout(vg)
+        zoom_row = QHBoxLayout()
+        zoom_row.addWidget(QLabel('Zoom:'))
+        self.slider_zoom = QSlider(Qt.Horizontal)
+        self.slider_zoom.setRange(10, 500)    # 0.10× … 5.00×
+        self.slider_zoom.setValue(100)        # 1.00×
+        zoom_row.addWidget(self.slider_zoom)
+        self.lbl_zoom = QLabel('1.00 ×')
+        self.lbl_zoom.setObjectName('value')
+        self.lbl_zoom.setMinimumWidth(55)
+        zoom_row.addWidget(self.lbl_zoom)
+        vv.addLayout(zoom_row)
+        zbtn_row = QHBoxLayout()
+        self.btn_zoom_reset = QPushButton('Reset view')
+        zbtn_row.addWidget(self.btn_zoom_reset)
+        vv.addLayout(zbtn_row)
+        side.addWidget(vg)
+
+        # Animation
+        ag = QGroupBox('Animation')
         av = QVBoxLayout(ag)
         row = QHBoxLayout()
         self.btn_play = QPushButton('▶  Play')
@@ -132,54 +179,125 @@ class OrbitSimulator2D(QWidget):
         row.addWidget(self.btn_play); row.addWidget(self.btn_reset)
         av.addLayout(row)
         sr = QHBoxLayout()
-        sr.addWidget(QLabel('Velocità:'))
+        sr.addWidget(QLabel('Speed:'))
         self.slider_speed = QSlider(Qt.Horizontal)
         self.slider_speed.setRange(1, 1000)
         self.slider_speed.setValue(50)
         sr.addWidget(self.slider_speed)
-        self.lbl_speed = QLabel('50 x')
+        self.lbl_speed = QLabel('50 ×')
         self.lbl_speed.setObjectName('value')
-        self.lbl_speed.setMinimumWidth(60)
+        self.lbl_speed.setMinimumWidth(55)
         sr.addWidget(self.lbl_speed)
         av.addLayout(sr)
-        sl.addWidget(ag)
+        side.addWidget(ag)
 
         # Info
+        info_box = QGroupBox('Orbit info')
+        il = QVBoxLayout(info_box)
+        il.setContentsMargins(4, 4, 4, 4)
         self.info_text = QTextEdit()
         self.info_text.setReadOnly(True)
-        self.info_text.setMinimumHeight(220)
-        sl.addWidget(self.info_text)
-        sl.addStretch(1)
-        root.addWidget(side)
+        self.info_text.setMinimumHeight(200)
+        il.addWidget(self.info_text)
+        side.addWidget(info_box)
+
+        side.addStretch(1)
+
+        credits = QLabel('Made by De Toni Bernardo & Da Ros Nicola')
+        credits.setObjectName('credits')
+        credits.setAlignment(Qt.AlignCenter)
+        side.addWidget(credits)
+
+        # Scroll area wrapping the sidebar, matching the main app look
+        side_scroll = QScrollArea()
+        side_scroll.setWidget(side_container)
+        side_scroll.setWidgetResizable(True)
+        side_scroll.setMinimumWidth(320)
+        side_scroll.setMaximumWidth(400)
+        root.addWidget(side_scroll)
 
         # ----------------- Plot -----------------
-        self.fig = Figure(figsize=(7, 7), facecolor='#02030a')
+        self.fig = Figure(figsize=(7, 7), facecolor='#0d1117')
         self.canvas = FigureCanvas(self.fig)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor('#02030a')
+        self.ax.set_facecolor('#0d1117')
         root.addWidget(self.canvas, 1)
 
-        # Connessioni
+        # Connections
         self.planet_combo.currentIndexChanged.connect(self._on_planet_changed)
-        self.spin_rp.valueChanged.connect(lambda _: self._recompute())
-        self.spin_e.valueChanged.connect(lambda _: self._recompute())
+        self.spin_rp.valueChanged.connect(self._on_rp_changed)
+        self.spin_a.valueChanged.connect(self._on_a_changed)
+        self.spin_e.valueChanged.connect(self._on_e_changed)
         self.spin_argp.valueChanged.connect(lambda _: self._recompute())
         self.spin_theta.valueChanged.connect(lambda _: self._recompute())
         self.btn_play.toggled.connect(self._on_play_toggled)
         self.btn_reset.clicked.connect(self._on_reset)
         self.slider_speed.valueChanged.connect(self._on_speed_changed)
+        self.slider_zoom.valueChanged.connect(self._on_zoom_changed)
+        self.btn_zoom_reset.clicked.connect(self._on_zoom_reset)
         self.canvas.mpl_connect('motion_notify_event', self._on_mouse_move)
 
-        # Timer animazione
         self.timer = QTimer()
-        self.timer.setInterval(50)   # 20 fps
+        self.timer.setInterval(50)
         self.timer.timeout.connect(self._on_tick)
 
         self._on_planet_changed(0)
 
     # ==================================================================
-    #   Slot
+    #   Parameter coupling  (rp, a, e)
+    # ==================================================================
+    def _sync_a_from_rp_e(self):
+        e = self.spin_e.value()
+        rp = self.spin_rp.value()
+        if abs(e - 1.0) < 1e-3:
+            a_val = np.inf
+            self.spin_a.setEnabled(False)
+            self.spin_a.blockSignals(True)
+            self.spin_a.setValue(0.0)
+            self.spin_a.blockSignals(False)
+        else:
+            a_val = rp / (1 - e)   # positive for ellipse, negative for hyp.
+            self.spin_a.setEnabled(True)
+            self.spin_a.blockSignals(True)
+            self.spin_a.setValue(a_val)
+            self.spin_a.blockSignals(False)
+
+    def _sync_rp_from_a_e(self):
+        e = self.spin_e.value()
+        a = self.spin_a.value()
+        if abs(e - 1.0) < 1e-3:
+            return  # parabola: rp is authoritative
+        rp = a * (1 - e)
+        if rp <= 0:
+            return
+        self.spin_rp.blockSignals(True)
+        self.spin_rp.setValue(rp)
+        self.spin_rp.blockSignals(False)
+
+    def _on_rp_changed(self, _v):
+        if self._updating: return
+        self._updating = True
+        self._sync_a_from_rp_e()
+        self._updating = False
+        self._recompute()
+
+    def _on_a_changed(self, _v):
+        if self._updating: return
+        self._updating = True
+        self._sync_rp_from_a_e()
+        self._updating = False
+        self._recompute()
+
+    def _on_e_changed(self, _v):
+        if self._updating: return
+        self._updating = True
+        # Keep rp as the authoritative quantity and update a
+        self._sync_a_from_rp_e()
+        self._updating = False
+        self._recompute()
+
+    # ==================================================================
+    #   Slots
     # ==================================================================
     def _on_planet_changed(self, _idx):
         name = self.planet_combo.currentText()
@@ -187,15 +305,17 @@ class OrbitSimulator2D(QWidget):
         self.mu = PLANETS[name]['mu']
         self.R_p = PLANETS[name]['R']
         self.planet_info.setText(
-            f"μ = {self.mu:.4g} km³/s²\nR = {self.R_p:.1f} km"
+            f'μ = {self.mu:.4g} km³/s²\nR = {self.R_p:.1f} km'
         )
-        # Default: rp = 1.4 R
         default_rp = self.R_p * 1.4
-        self.spin_rp.blockSignals(True)
-        self.spin_rp.setRange(self.R_p * 1.01, self.R_p * 200)
+        self._updating = True
+        self.spin_rp.setRange(self.R_p * 1.01, self.R_p * 500)
         self.spin_rp.setValue(default_rp)
         self.spin_rp.setSingleStep(max(self.R_p * 0.05, 10.0))
-        self.spin_rp.blockSignals(False)
+        self.spin_a.setRange(-self.R_p * 1000, self.R_p * 1000)
+        self.spin_a.setSingleStep(max(self.R_p * 0.1, 10.0))
+        self._sync_a_from_rp_e()
+        self._updating = False
         self.sim_time = 0.0
         self._recompute()
 
@@ -216,29 +336,32 @@ class OrbitSimulator2D(QWidget):
         self._update_satellite()
 
     def _on_speed_changed(self, v):
-        self.lbl_speed.setText(f'{v} x')
+        self.lbl_speed.setText(f'{v} ×')
         self.speed = float(v)
 
+    def _on_zoom_changed(self, v):
+        self.zoom = v / 100.0
+        self.lbl_zoom.setText(f'{self.zoom:.2f} ×')
+        self._apply_zoom()
+
+    def _on_zoom_reset(self):
+        self.slider_zoom.setValue(100)
+
     # ==================================================================
-    #   Geometria
+    #   Geometry
     # ==================================================================
     def _semi_latus_rectum(self):
         e = self.e; rp = self.rp
         return 2 * rp if abs(e - 1.0) < 1e-3 else rp * (1 + e)
 
     def _theta_inf(self):
-        e = self.e
-        if e <= 1.0:
-            return None
-        return np.arccos(-1.0 / e)
+        return np.arccos(-1.0 / self.e) if self.e > 1.0 else None
 
     def _build_orbit_points(self):
-        """Campiona θ lungo l'orbita per il plot e calcola (x, y)."""
         e = self.e
         if e < 1.0:
             theta_arr = np.linspace(0, 2 * np.pi, 360)
         elif abs(e - 1.0) < 1e-3:
-            # Parabola: r = p/(1+cos θ) → limita r a ~25 r_p
             theta_max = 2 * np.arctan(np.sqrt(24))
             theta_arr = np.linspace(-theta_max, theta_max, 400)
         else:
@@ -248,8 +371,7 @@ class OrbitSimulator2D(QWidget):
         p = self._semi_latus_rectum()
         r = p / (1 + e * np.cos(theta_arr))
         ang = theta_arr + self.argp
-        x = r * np.cos(ang)
-        y = r * np.sin(ang)
+        x = r * np.cos(ang); y = r * np.sin(ang)
         return theta_arr, np.column_stack([x, y])
 
     def _xy_at(self, theta):
@@ -259,7 +381,7 @@ class OrbitSimulator2D(QWidget):
         return np.array([r * np.cos(ang), r * np.sin(ang)])
 
     # ==================================================================
-    #   Tempo / animazione
+    #   Time parametrization (Kepler)
     # ==================================================================
     def _mean_motion_and_M0(self):
         e = self.e; mu = self.mu; rp = self.rp
@@ -291,7 +413,7 @@ class OrbitSimulator2D(QWidget):
             return self.theta0
 
     # ==================================================================
-    #   Disegno
+    #   Drawing
     # ==================================================================
     def _recompute(self):
         self.e = self.spin_e.value()
@@ -301,112 +423,126 @@ class OrbitSimulator2D(QWidget):
         self._theta_arr, self._xy_arr = self._build_orbit_points()
         self._redraw()
 
-    def _redraw(self):
-        self.ax.clear()
-        self.ax.set_facecolor('#02030a')
-        self.ax.set_aspect('equal', adjustable='box')
-        self.ax.grid(color='#223355', alpha=0.4, linewidth=0.5)
-        for s in self.ax.spines.values():
-            s.set_color('#335577')
-        self.ax.tick_params(colors='#aaccee')
-
+    def _natural_extent(self):
+        """Intrinsic viewport size (zoom = 1)."""
         e = self.e; rp = self.rp
-        # Limiti
         if e < 1.0:
             ra_v = rp * (1 + e) / (1 - e) if e > 0 else rp
-            max_r = ra_v * 1.15
+            base = ra_v * 1.15
         else:
-            # estensione massima dell'orbita campionata
-            max_r = float(np.max(np.linalg.norm(self._xy_arr, axis=1))) * 1.05
-        max_r = max(max_r, self.R_p * 2.5)
-        self.ax.set_xlim(-max_r, max_r)
-        self.ax.set_ylim(-max_r, max_r)
+            base = float(np.max(np.linalg.norm(self._xy_arr, axis=1))) * 1.05
+        return max(base, self.R_p * 2.5)
 
-        # Pianeta
+    def _apply_zoom(self):
+        base = self._natural_extent()
+        half = base / self.zoom
+        self.ax.set_xlim(-half, half)
+        self.ax.set_ylim(-half, half)
+        self.canvas.draw_idle()
+
+    def _redraw(self):
+        self.ax.clear()
+        self.ax.set_facecolor('#0d1117')
+        self.ax.set_aspect('equal', adjustable='box')
+        self.ax.grid(color='#30363d', alpha=0.4, linewidth=0.5)
+        for s in self.ax.spines.values():
+            s.set_color('#30363d')
+        self.ax.tick_params(colors='#8b949e')
+
+        e = self.e; rp = self.rp
+
+        # Central body
         circle = Circle((0, 0), self.R_p,
                         facecolor=PLANETS[self.planet]['color'],
                         edgecolor='white', linewidth=0.8,
                         alpha=0.85, zorder=2)
         self.ax.add_patch(circle)
-        self.ax.plot(0, 0, marker='+', color='white', markersize=8, zorder=3)
+        # Primary focus (central body center)
+        self.ax.plot(0, 0, marker='+', color='white',
+                     markersize=9, markeredgewidth=1.4, zorder=3)
 
-        # Orbita
+        # Second focus (ellipses / hyperbolas)
+        if abs(e - 1.0) > 1e-3 and e > 1e-4:
+            a_val = rp / (1 - e)        # signed
+            f2_dist = -2 * a_val * e
+            fx = f2_dist * np.cos(self.argp)
+            fy = f2_dist * np.sin(self.argp)
+            self.ax.plot(fx, fy, marker='o', color='#8b949e',
+                         markersize=5, markeredgecolor='white',
+                         markeredgewidth=0.8, zorder=5)
+            self.ax.annotate('F₂', (fx, fy), xytext=(8, 8),
+                             textcoords='offset points',
+                             color='#8b949e', fontsize=9)
+
+        # Orbit
         x = self._xy_arr[:, 0]; y = self._xy_arr[:, 1]
-        self.ax.plot(x, y, color='#ff7744', linewidth=1.8,
+        self.ax.plot(x, y, color='#f85149', linewidth=1.8,
                      alpha=0.95, zorder=4)
 
-        # Asintoti per iperbole
+        # Asymptotes (hyperbola)
         if e > 1.0 and abs(e - 1.0) > 1e-3:
-            self._draw_asymptotes(max_r)
+            self._draw_asymptotes()
 
-        # Pericentro
+        # Pericenter
         pp = self._xy_at(0.0)
-        self.ax.plot(pp[0], pp[1], marker='o', color='#ff8800',
+        self.ax.plot(pp[0], pp[1], marker='o', color='#d29922',
                      markersize=8, markeredgecolor='white', zorder=6)
-        self.ax.annotate('  P', (pp[0], pp[1]), color='#ffaa44',
-                         fontsize=11, fontweight='bold', zorder=7)
+        self.ax.annotate('  P', (pp[0], pp[1]), color='#e3b341',
+                         fontsize=10, fontweight='bold', zorder=7)
 
-        # Apocentro (solo se ellittica)
+        # Apocenter (elliptic only)
         if 1e-3 < e < 1.0:
             ap = self._xy_at(np.pi)
-            self.ax.plot(ap[0], ap[1], marker='o', color='#4488ff',
+            self.ax.plot(ap[0], ap[1], marker='o', color='#58a6ff',
                          markersize=7, markeredgecolor='white', zorder=6)
-            self.ax.annotate('  A', (ap[0], ap[1]), color='#88bbff',
-                             fontsize=11, fontweight='bold', zorder=7)
-
-        # Asse del pericentro (linea degli apsidi)
-        if e < 1.0 and e > 1e-3:
-            ap = self._xy_at(np.pi)
+            self.ax.annotate('  A', (ap[0], ap[1]), color='#58a6ff',
+                             fontsize=10, fontweight='bold', zorder=7)
             self.ax.plot([pp[0], ap[0]], [pp[1], ap[1]],
-                         color='#88aaff', linestyle='--',
+                         color='#58a6ff', linestyle='--',
                          linewidth=0.6, alpha=0.4, zorder=3)
 
         # Satellite
         sat_xy = self._xy_at(self._theta_at_time(self.sim_time))
         self._sat_radius_line, = self.ax.plot(
             [0, sat_xy[0]], [0, sat_xy[1]],
-            color='#88ccff', linewidth=0.7, alpha=0.5, zorder=3)
+            color='#56d4dd', linewidth=0.7, alpha=0.5, zorder=3)
         self._sat_marker, = self.ax.plot(
             [sat_xy[0]], [sat_xy[1]],
-            marker='o', markersize=11, markerfacecolor='#ffd866',
+            marker='o', markersize=11, markerfacecolor='#e3b341',
             markeredgecolor='white', zorder=10)
 
-        # Tooltip (creato dopo clear)
         self.tooltip = self.ax.annotate(
             '', xy=(0, 0), xytext=(12, 12),
             textcoords='offset points', fontsize=9,
-            color='white',
-            bbox=dict(facecolor='#1a2438', edgecolor='#88aadd',
-                      alpha=0.92, boxstyle='round,pad=0.4'),
+            color='#e6edf3',
+            bbox=dict(facecolor='#161b22', edgecolor='#58a6ff',
+                      alpha=0.95, boxstyle='round,pad=0.4'),
             visible=False, zorder=20,
         )
 
-        # Titolo / etichette
         self.ax.set_title(
-            f'Orbita {self._orbit_type_name()} attorno a {self.planet}',
-            color='#aaddff', fontsize=11, pad=6,
+            f'{self._orbit_type_name().capitalize()} orbit around {self.planet}',
+            color='#58a6ff', fontsize=11, pad=6,
         )
-        self.ax.set_xlabel('x [km]', color='white')
-        self.ax.set_ylabel('y [km]', color='white')
+        self.ax.set_xlabel('x [km]', color='#e6edf3')
+        self.ax.set_ylabel('y [km]', color='#e6edf3')
 
+        self._apply_zoom()
         self._update_info_panel()
-        self.canvas.draw_idle()
 
-    def _draw_asymptotes(self, max_r):
-        """Disegna gli asintoti dell'orbita iperbolica."""
+    def _draw_asymptotes(self):
         e = self.e
         theta_inf = self._theta_inf()
-        # Direzioni asintoti nel frame del pericentro
+        base = self._natural_extent()
         for sign in (+1, -1):
             th_far = sign * 0.985 * theta_inf
             far = self._xy_at(th_far)
-            # direzione asintoto = (cos(th_inf*sign + argp), sin(...))
             ang = sign * theta_inf + self.argp
             d = np.array([np.cos(ang), np.sin(ang)])
-            t_vals = np.linspace(-max_r * 1.5, max_r * 1.5, 2)
+            t_vals = np.linspace(-base * 3, base * 3, 2)
             xs = far[0] + t_vals * d[0]
             ys = far[1] + t_vals * d[1]
-            self.ax.plot(xs, ys, color='#aaaaff',
+            self.ax.plot(xs, ys, color='#8b949e',
                          linestyle=':', linewidth=0.9,
                          alpha=0.55, zorder=3)
 
@@ -427,7 +563,6 @@ class OrbitSimulator2D(QWidget):
     def _on_tick(self):
         dt_real = self.timer.interval() / 1000.0
         self.sim_time += dt_real * self.speed
-        # Reset per orbite aperte quando il sat si avvicina all'asintoto
         if self.e > 1.0 and abs(self.e - 1.0) > 1e-3:
             th = self._theta_at_time(self.sim_time)
             theta_inf = self._theta_inf()
@@ -444,10 +579,10 @@ class OrbitSimulator2D(QWidget):
     # ==================================================================
     def _orbit_type_name(self):
         e = self.e
-        if e < 1e-3: return 'circolare'
-        if e < 1.0: return 'ellittica'
-        if abs(e - 1.0) < 1e-3: return 'parabolica'
-        return 'iperbolica'
+        if e < 1e-3:                 return 'circular'
+        if e < 1.0:                  return 'elliptic'
+        if abs(e - 1.0) < 1e-3:      return 'parabolic'
+        return 'hyperbolic'
 
     def _orbit_props(self, theta):
         e = self.e; mu = self.mu; rp = self.rp
@@ -455,7 +590,7 @@ class OrbitSimulator2D(QWidget):
         if abs(e - 1.0) < 1e-3:
             a = np.inf
         else:
-            a = rp / (1 - e) if e < 1 else rp / (1 - e)  # negativo per iperb.
+            a = rp / (1 - e)   # signed
         h = np.sqrt(mu * abs(p))
         r = abs(p) / (1 + e * np.cos(theta))
         if abs(e - 1.0) < 1e-3:
@@ -474,56 +609,60 @@ class OrbitSimulator2D(QWidget):
         e = self.e; rp = self.rp; mu = self.mu
 
         L = []
-        L.append(f"<b style='color:#6ab0ff'>Pianeta: {self.planet}</b><br>")
-        L.append(f"<span style='color:#88aadd'>Tipo:</span> "
-                 f"<b style='color:#ffd866'>{self._orbit_type_name()}</b><br>")
-        L.append(f"<span style='color:#88aadd'>r<sub>p</sub>:</span> "
-                 f"<b style='color:#ffd866'>{rp:.1f} km</b> "
+        L.append(f"<b style='color:#58a6ff'>{self.planet}</b><br>")
+        L.append(f"<span style='color:#8b949e'>Type:</span> "
+                 f"<b style='color:#e3b341'>{self._orbit_type_name()}</b><br>")
+        L.append(f"<span style='color:#8b949e'>r<sub>p</sub>:</span> "
+                 f"<b style='color:#e3b341'>{rp:.1f} km</b> "
                  f"(h={rp - self.R_p:.1f} km)<br>")
         if e < 1.0:
             ra = rp * (1 + e) / (1 - e) if e > 0 else rp
-            L.append(f"<span style='color:#88aadd'>r<sub>a</sub>:</span> "
-                     f"<b style='color:#ffd866'>{ra:.1f} km</b><br>")
+            L.append(f"<span style='color:#8b949e'>r<sub>a</sub>:</span> "
+                     f"<b style='color:#e3b341'>{ra:.1f} km</b><br>")
+            L.append(f"<span style='color:#8b949e'>a:</span> "
+                     f"<b style='color:#e3b341'>{pr['a']:.1f} km</b><br>")
             T = 2 * np.pi * np.sqrt(pr['a'] ** 3 / mu)
-            L.append(f"<span style='color:#88aadd'>Periodo T:</span> "
+            L.append(f"<span style='color:#8b949e'>Period T:</span> "
                      f"{T:.1f} s = {T / 60:.2f} min = {T / 3600:.3f} h<br>")
         elif abs(e - 1.0) < 1e-3:
-            L.append(f"<span style='color:#88aadd'>r<sub>a</sub>:</span> "
+            L.append(f"<span style='color:#8b949e'>r<sub>a</sub>:</span> "
                      f"∞ (parabola)<br>")
-            L.append(f"<span style='color:#88aadd'>v fuga al r<sub>p</sub>:</span> "
+            L.append(f"<span style='color:#8b949e'>v<sub>esc</sub> at r<sub>p</sub>:</span> "
                      f"{np.sqrt(2 * mu / rp):.3f} km/s<br>")
         else:
             theta_inf = self._theta_inf()
             v_inf = np.sqrt(mu * (e - 1) / rp)
             delta = 2 * np.arcsin(1.0 / e)
-            L.append(f"<span style='color:#88aadd'>v<sub>∞</sub>:</span> "
-                     f"<b style='color:#ffd866'>{v_inf:.3f} km/s</b><br>")
-            L.append(f"<span style='color:#88aadd'>θ<sub>∞</sub>:</span> "
-                     f"<b style='color:#ffd866'>±{np.degrees(theta_inf):.2f}°</b><br>")
-            L.append(f"<span style='color:#88aadd'>δ (deflessione):</span> "
+            L.append(f"<span style='color:#8b949e'>a:</span> "
+                     f"<b style='color:#e3b341'>{pr['a']:.1f} km</b> (negative)<br>")
+            L.append(f"<span style='color:#8b949e'>v<sub>∞</sub>:</span> "
+                     f"<b style='color:#e3b341'>{v_inf:.3f} km/s</b><br>")
+            L.append(f"<span style='color:#8b949e'>θ<sub>∞</sub>:</span> "
+                     f"<b style='color:#e3b341'>±{np.degrees(theta_inf):.2f}°</b><br>")
+            L.append(f"<span style='color:#8b949e'>δ (deflection):</span> "
                      f"{np.degrees(delta):.2f}°<br>")
 
-        L.append(f"<span style='color:#88aadd'>Energia ξ:</span> "
-                 f"<b style='color:#ffd866'>{pr['energy']:+.4f} km²/s²</b><br>")
-        L.append(f"<span style='color:#88aadd'>h:</span> "
+        L.append(f"<span style='color:#8b949e'>Energy ξ:</span> "
+                 f"<b style='color:#e3b341'>{pr['energy']:+.4f} km²/s²</b><br>")
+        L.append(f"<span style='color:#8b949e'>h:</span> "
                  f"{pr['h']:.1f} km²/s &nbsp; "
-                 f"<span style='color:#88aadd'>p:</span> {pr['p']:.1f} km<br>")
-        L.append(f"<br><b style='color:#6ab0ff'>Stato corrente</b><br>")
-        L.append(f"<span style='color:#88aadd'>θ:</span> "
-                 f"<b style='color:#ffd866'>{np.degrees(th):+.2f}°</b><br>")
-        L.append(f"<span style='color:#88aadd'>r:</span> {pr['r']:.1f} km<br>")
-        L.append(f"<span style='color:#88aadd'>|v|:</span> "
-                 f"<b style='color:#ffd866'>{pr['v']:.3f} km/s</b><br>")
-        L.append(f"<span style='color:#88aadd'>v<sub>⊥</sub>:</span> "
+                 f"<span style='color:#8b949e'>p:</span> {pr['p']:.1f} km<br>")
+        L.append(f"<br><b style='color:#58a6ff'>Current state</b><br>")
+        L.append(f"<span style='color:#8b949e'>θ:</span> "
+                 f"<b style='color:#e3b341'>{np.degrees(th):+.2f}°</b><br>")
+        L.append(f"<span style='color:#8b949e'>r:</span> {pr['r']:.1f} km<br>")
+        L.append(f"<span style='color:#8b949e'>|v|:</span> "
+                 f"<b style='color:#e3b341'>{pr['v']:.3f} km/s</b><br>")
+        L.append(f"<span style='color:#8b949e'>v<sub>⊥</sub>:</span> "
                  f"{pr['v_perp']:.3f} km/s &nbsp; "
-                 f"<span style='color:#88aadd'>v<sub>r</sub>:</span> "
+                 f"<span style='color:#8b949e'>v<sub>r</sub>:</span> "
                  f"{pr['v_r']:.3f} km/s<br>")
-        L.append(f"<span style='color:#88aadd'>γ (FPA):</span> "
-                 f"<b style='color:#ffd866'>{pr['gamma']:+.3f}°</b><br>")
+        L.append(f"<span style='color:#8b949e'>γ (FPA):</span> "
+                 f"<b style='color:#e3b341'>{pr['gamma']:+.3f}°</b><br>")
         self.info_text.setHtml(''.join(L))
 
     # ==================================================================
-    #   Tooltip mouse
+    #   Mouse tooltip
     # ==================================================================
     def _on_mouse_move(self, event):
         if self.tooltip is None or self._xy_arr is None:
@@ -546,11 +685,11 @@ class OrbitSimulator2D(QWidget):
             return
         theta = float(self._theta_arr[idx])
         pr = self._orbit_props(theta)
-        txt = (f"θ = {np.degrees(theta):+.2f}°\n"
-               f"r = {pr['r']:.1f} km\n"
-               f"|v| = {pr['v']:.3f} km/s\n"
-               f"v⊥ = {pr['v_perp']:.3f}, v_r = {pr['v_r']:.3f}\n"
-               f"γ = {pr['gamma']:+.2f}°")
+        txt = (f'θ = {np.degrees(theta):+.2f}°\n'
+               f'r = {pr["r"]:.1f} km\n'
+               f'|v| = {pr["v"]:.3f} km/s\n'
+               f'v⊥ = {pr["v_perp"]:.3f}, v_r = {pr["v_r"]:.3f}\n'
+               f'γ = {pr["gamma"]:+.2f}°')
         self.tooltip.xy = (pt[0], pt[1])
         self.tooltip.set_text(txt)
         self.tooltip.set_visible(True)
